@@ -1,0 +1,96 @@
+name: LeafLow Auto Check-in
+
+on:
+  schedule:
+    # Run at 00:30 UTC (08:30 Beijing time) every day
+    - cron: '30 0 * * *'
+  workflow_dispatch:
+    inputs:
+      debug:
+        description: 'Enable debug mode'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Configure accounts
+      run: |
+        # Create config from secrets
+        cat > config.accounts.json << EOF
+        {
+          "settings": {
+            "log_level": "INFO",
+            "retry_delay": 3,
+            "timeout": 30,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+          },
+          "accounts": [
+            {
+              "email": "${{ secrets.ACCOUNT_EMAIL }}",
+              "note": "GitHub Actions Account",
+              "enabled": true,
+              "token_data": {
+                "cookies": {
+                  "leaflow_session": "${{ secrets.LEAFLOW_SESSION }}",
+                  "remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d": "${{ secrets.REMEMBER_TOKEN }}",
+                  "XSRF-TOKEN": "${{ secrets.XSRF_TOKEN }}",
+                  "shared_api_cookie": "${{ secrets.SHARED_API_COOKIE }}"
+                },
+                "headers": {
+                  "X-Requested-With": "XMLHttpRequest",
+                  "Accept": "application/json, text/plain, */*",
+                  "Content-Type": "application/x-www-form-urlencoded",
+                  "Origin": "https://leaflow.net",
+                  "Referer": "https://leaflow.net/balance"
+                }
+              }
+            }
+          ]
+        }
+        EOF
+        
+    - name: Run check-in (Debug)
+      if: github.event.inputs.debug == 'true'
+      run: python checkin_token.py --debug
+      env:
+        TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+        TG_USER_ID: ${{ secrets.TG_USER_ID }}
+        QYWX_KEY: ${{ secrets.QYWX_KEY }}
+        HITOKOTO: 'true'
+        
+    - name: Run check-in (Normal)
+      if: github.event.inputs.debug != 'true'
+      run: python checkin_token.py --notify
+      env:
+        TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+        TG_USER_ID: ${{ secrets.TG_USER_ID }}
+        QYWX_KEY: ${{ secrets.QYWX_KEY }}
+        HITOKOTO: 'true'
+        
+    - name: Upload logs (on failure)
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: checkin-logs
+        path: '*.log'
+        retention-days: 7
